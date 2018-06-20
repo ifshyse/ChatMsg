@@ -112,6 +112,7 @@ static SocketClient *_sharedInstance = nil;
 
 - (id) init {
     if (self = [super init]) {
+        self.operationQueue = [[NSOperationQueue alloc] init];
         self.connetSocketResult = -2;
         self.sendTag = 0;
         self.readTag = 0;
@@ -183,9 +184,9 @@ static SocketClient *_sharedInstance = nil;
         socketParameters.sin_addr = *remoteInAddr;
         socketParameters.sin_port = htons(port);
         
-        //int nosigpipe = 1;
+        int nosigpipe = 1;
         // 防止发送SO_NOSIGPIPE信号导致崩溃
-        //int ret = setsockopt(self.socketFileDescriptor, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe,sizeof(nosigpipe));
+        int ret = setsockopt(self.socketFileDescriptor, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe,sizeof(nosigpipe));
 //        if (-1 == ret) {
 //            NSLog(@"SO_NOSIGPIPE信号");
 //            NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:@"SO_NOSIGPIPE信号", NSLocalizedDescriptionKey, @"失败原因：SO_NOSIGPIPE信号", NSLocalizedFailureReasonErrorKey, @"恢复建议：请重新连接",NSLocalizedRecoverySuggestionErrorKey,nil];
@@ -196,8 +197,9 @@ static SocketClient *_sharedInstance = nil;
 //        }
         //unsigned long ul = 1;
         //ioctl(self.socketFileDescriptor, FIONBIO, &ul);
+        
         // 连接 socket
-        int ret = connect(self.socketFileDescriptor, (struct sockaddr *) &socketParameters, sizeof(socketParameters));
+        ret = connect(self.socketFileDescriptor, (struct sockaddr *) &socketParameters, sizeof(socketParameters));
         if (-1 == ret) {
             close(self.socketFileDescriptor);
             NSLog(@"连接失败");
@@ -240,6 +242,11 @@ static SocketClient *_sharedInstance = nil;
     size_t ret = send(self.socketFileDescriptor, [data bytes], size , 0);
     if (-1 == ret) {
         NSLog(@"send 失败");
+        close(self.socketFileDescriptor);
+        NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:@"socket连接失败", NSLocalizedDescriptionKey, @"失败原因：socket连接失败", NSLocalizedFailureReasonErrorKey, @"恢复建议：请重新连接",NSLocalizedRecoverySuggestionErrorKey,nil];
+        NSError *err = [[NSError alloc] initWithDomain:NSPOSIXErrorDomain code:-1 userInfo:userInfo];
+        [self.delegate socketDidDisconnect:self withError:err];
+        self.connetSocketResult = -1;
     }else {
         self.sendTag ++;
         [self.delegate socket:self didWriteDataWithTag:self.sendTag];
@@ -253,7 +260,6 @@ static SocketClient *_sharedInstance = nil;
 
 -(void)startReceiveData {
     
-    self.operationQueue = [[NSOperationQueue alloc] init];
     WEAKSELF;
     [self.operationQueue addOperationWithBlock:^{
         [weakself receiveData];
@@ -263,7 +269,6 @@ static SocketClient *_sharedInstance = nil;
 - (void)stop
 {
     [_operationQueue cancelAllOperations];
-    _operationQueue = nil;
 }
 
 - (void)disconnect {

@@ -16,13 +16,18 @@
 
 #define SOCKET_TIME_OUT 30
 
+enum {
+    kWorkTodo = 1,
+    kNoWorkTodo = 0
+};
+
 @interface SocketManager()
 <SocketClientDelegate>
 
 @property (strong, nonatomic) SocketClient  *socket;
 @property (nonatomic, strong) NSThread *thread;
 @property (nonatomic, strong) NSTimer* timer;
-@property(nonatomic,strong) NSMutableData* responseData;
+@property (nonatomic, strong) NSConditionLock* conditionLock;
 
 @property (assign, nonatomic) long readTag;
 
@@ -42,6 +47,9 @@ static SocketManager *_sharedInstance = nil;
 - (void)dealloc {
     [self disconnect];
     _socket = nil;
+    _thread = nil;
+    _timer = nil;
+    _conditionLock = nil;
     NSLog(@"SocketManager dealloc");
 }
 
@@ -53,8 +61,10 @@ static SocketManager *_sharedInstance = nil;
         self.socket = [[SocketClient alloc] init];
         self.socket.delegate = self;
         
+        self.conditionLock = [[NSConditionLock alloc] initWithCondition:kNoWorkTodo];
+        
         _readTag = 0;
-        self.responseData = [[NSMutableData alloc] init];
+        //self.responseData = [[NSMutableData alloc] init];
     }
     return self;
 }
@@ -65,13 +75,16 @@ static SocketManager *_sharedInstance = nil;
 
 - (void)threadStart{
     @autoreleasepool {
-        self.timer = [NSTimer scheduledTimerWithTimeInterval:5 target:self selector:@selector(heartBeat) userInfo:nil repeats:YES];
+        if (self.timer == nil) {
+            self.timer = [NSTimer scheduledTimerWithTimeInterval:5 target:self selector:@selector(heartBeat) userInfo:nil repeats:YES];
+        }
         [[NSRunLoop currentRunLoop] run];
     }
 }
 
 - (void)heartBeat{
     DDLogInfo(@"sendHeartBeatIM = %@",[NSDate date]);
+    [self.conditionLock lockWhenCondition:kWorkTodo];
     //发送命令方法
     struct msg_header_st msghb;
     msghb.cmd = CMD_CHAT;
@@ -79,6 +92,7 @@ static SocketManager *_sharedInstance = nil;
     msghb.len = MSG_HEADER_SIZE;
     NSData *data = [NSData dataWithBytes:(char*)&msghb length:MSG_HEADER_SIZE];
     [SOCKET_MANAGER sendData:data tag:self.gplSendLocal.tag];
+    [self.conditionLock unlockWithCondition:kWorkTodo];
 }
 
 - (NSThread*)thread{
@@ -90,13 +104,13 @@ static SocketManager *_sharedInstance = nil;
 
 
 -(void)disconnect {
+    [self.conditionLock lockWhenCondition:kWorkTodo];
     if (_timer) {
         [_timer invalidate];
         _timer = nil;
     }
-    [_thread cancel];
-    _thread = nil;
     [_socket disconnect];
+    [self.conditionLock unlockWithCondition:kNoWorkTodo];
 }
 
 /**
@@ -119,7 +133,9 @@ static SocketManager *_sharedInstance = nil;
             self.socketCallBack(SocketSenderEventType_ErrorOnConnect,error,0, SocketSenderTagNone);
         }
     }else {
-        [self.thread start];
+        [self.conditionLock lock];
+        [NSThread detachNewThreadSelector:@selector(threadStart) toTarget:self withObject:nil];
+        [self.conditionLock unlockWithCondition:kWorkTodo];
     }
 }
 
@@ -166,7 +182,7 @@ static SocketManager *_sharedInstance = nil;
     
     if (self.socketCallBack) {
         //[self.socket readDataWithTimeout:SOCKET_TIME_OUT tag:tag];
-        self.socketCallBack(SocketSenderEventType_DataReceived,data,0,tag);
+    self.socketCallBack(SocketSenderEventType_DataReceived,data,fromUID,tag);
     }
 //    [self.responseData appendData:data];
 //    msg_header_t pch = (msg_header_t)[self.responseData bytes];
