@@ -129,6 +129,7 @@ static SocketManager *_sharedInstance = nil;
     BOOL result = [self.socket connectToHost:ipAddress onPort:port error:&error];
     if(!result) {
         NSLog(@"链接socket失败");
+        [self disconnect];
         if (self.socketCallBack) {
             self.socketCallBack(SocketSenderEventType_ErrorOnConnect,error,0, SocketSenderTagNone);
         }
@@ -156,6 +157,7 @@ static SocketManager *_sharedInstance = nil;
  断开连接
  */
 - (void)socketDidDisconnect:(SocketClient *)sock withError:(NSError *)err {
+    [self disconnect];
     if (self.socketCallBack) {
         self.socketCallBack(SocketSenderEventType_Disconnect,err,0,SocketSenderTagNone);
     }
