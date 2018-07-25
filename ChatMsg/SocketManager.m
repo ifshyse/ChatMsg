@@ -157,7 +157,6 @@ static SocketManager *_sharedInstance = nil;
  断开连接
  */
 - (void)socketDidDisconnect:(SocketClient *)sock withError:(NSError *)err {
-    [self disconnect];
     if (self.socketCallBack) {
         self.socketCallBack(SocketSenderEventType_Disconnect,err,0,SocketSenderTagNone);
     }
